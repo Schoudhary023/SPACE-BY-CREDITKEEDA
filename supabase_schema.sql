@@ -1,3 +1,7 @@
+-- Canonical schema for the tables/functions used by this branch.
+-- Excludes unrelated live-only tables, unreleased Gmail tables, and legacy
+-- bot_* fallback tables kept only for old deployments.
+--
 -- Destructive reset for Space by Creditkeeda tables.
 -- Safety guard:
 -- 1. Back up data first.
@@ -11,6 +15,8 @@ BEGIN
 END $$;
 
 BEGIN;
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 DROP TABLE IF EXISTS blocked_users_vault CASCADE;
 DROP TABLE IF EXISTS analytics_events_vault CASCADE;
@@ -50,11 +56,12 @@ CREATE TABLE gift_cards_vault (
 );
 
 CREATE TABLE expiry_reminders_vault (
-  gift_card_id bigint PRIMARY KEY REFERENCES gift_cards_vault(id) ON DELETE CASCADE,
+  gift_card_id bigint NOT NULL REFERENCES gift_cards_vault(id) ON DELETE CASCADE,
   telegram_id text NOT NULL,
   reminder_type text NOT NULL,
   notified_at timestamptz NOT NULL DEFAULT now(),
-  created_at timestamptz NOT NULL DEFAULT now()
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (gift_card_id, reminder_type)
 );
 
 CREATE TABLE sessions_vault (
