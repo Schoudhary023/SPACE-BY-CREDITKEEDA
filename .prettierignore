@@ -1,0 +1,11 @@
+node_modules/
+space-app/
+.next/
+coverage/
+build/
+dist/
+*.log
+*.traineddata
+.env
+.env.*
+!.env.example
