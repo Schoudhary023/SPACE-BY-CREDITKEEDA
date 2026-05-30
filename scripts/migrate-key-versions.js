@@ -22,9 +22,7 @@ async function migrateKeyVersions() {
       process.exit(1);
     }
 
-    console.log(
-      `Migration completed! Updated ${data ? data.length : 0} records.`,
-    );
+    console.log(`Migration completed! Updated ${data ? data.length : 0} records.`);
   } catch (error) {
     console.error("Migration error:", error);
     process.exit(1);

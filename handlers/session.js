@@ -1,4 +1,3 @@
-const bcrypt = require("bcryptjs");
 const { logError } = require("../lib/logger");
 const {
   clearPendingAction,
@@ -7,24 +6,13 @@ const {
   hydrateSessionPin,
   savePendingAction,
 } = require("../lib/runtimeStore");
-const { supabase, withSupabaseRetry } = require("../lib/supabase");
 const { escMd } = require("../lib/markdown");
 const { track } = require("../lib/analytics");
+const { getVaultAuthByTelegramId, SESSION_MS, verifyVaultPin } = require("../lib/vaultSessions");
 
 const ERROR = "\u274C";
 const LOCK = "\u{1F512}";
 const UNLOCK = "\u{1F510}";
-const SESSION_MS = 30 * 60 * 1000;
-const MAX_FAILED_ATTEMPTS = 3;
-
-// Escalating lockout: each cycle of MAX_FAILED_ATTEMPTS increases duration.
-// totalAttempts accumulates across lockouts (only reset on success).
-function getLockoutDuration(totalAttempts) {
-  if (totalAttempts >= 12) return 24 * 60 * 60 * 1000; // 24 h
-  if (totalAttempts >= 9) return 4 * 60 * 60 * 1000; // 4 h
-  if (totalAttempts >= 6) return 60 * 60 * 1000; // 1 h
-  return 30 * 60 * 1000; // 30 min (first lockout)
-}
 const activeSessions = new Map();
 
 function cleanupExpiredActiveSessions() {
@@ -94,11 +82,7 @@ function buildSaveCardPayload(msg) {
     };
   }
 
-  if (
-    msg.document &&
-    typeof msg.document.mime_type === "string" &&
-    msg.document.mime_type.startsWith("image/")
-  ) {
+  if (msg.document && typeof msg.document.mime_type === "string" && msg.document.mime_type.startsWith("image/")) {
     return {
       kind: "document",
       document: msg.document,
@@ -115,29 +99,20 @@ function buildSaveCardPayload(msg) {
 
 async function promptForPin(bot, msg, pendingAction) {
   const telegramId = String(msg.from.id);
-  await savePendingAction(
-    telegramId,
-    msg.chat.id,
-    pendingAction.type,
-    pendingAction.payload,
-  );
+  await savePendingAction(telegramId, msg.chat.id, pendingAction.type, pendingAction.payload);
 
   await bot.sendMessage(
     msg.chat.id,
     `${UNLOCK} Enter your vault PIN to unlock Space\\.`,
-    { parse_mode: "MarkdownV2" },
+    { parse_mode: "MarkdownV2" }
   );
 }
 
 async function resumePendingAction(bot, msg, session, pendingAction, handlers) {
   if (!pendingAction) {
-    await bot.sendMessage(
-      msg.chat.id,
-      `${ERROR} No pending action found\\. Try again\\.`,
-      {
-        parse_mode: "MarkdownV2",
-      },
-    );
+    await bot.sendMessage(msg.chat.id, `${ERROR} No pending action found\\. Try again\\.`, {
+      parse_mode: "MarkdownV2",
+    });
     return;
   }
 
@@ -146,10 +121,7 @@ async function resumePendingAction(bot, msg, session, pendingAction, handlers) {
     return;
   }
 
-  if (
-    pendingAction.action_type === "cards" ||
-    pendingAction.action_type === "show"
-  ) {
+  if (pendingAction.action_type === "cards" || pendingAction.action_type === "show") {
     await handlers.handleShow(bot, msg, session);
     return;
   }
@@ -160,12 +132,7 @@ async function resumePendingAction(bot, msg, session, pendingAction, handlers) {
   }
 
   if (pendingAction.action_type === "search") {
-    await handlers.handleSearch(
-      bot,
-      msg,
-      session,
-      pendingAction.payload?.query || "",
-    );
+    await handlers.handleSearch(bot, msg, session, pendingAction.payload?.query || "");
     return;
   }
 
@@ -182,18 +149,9 @@ async function resumePendingAction(bot, msg, session, pendingAction, handlers) {
   if (pendingAction.action_type === "save_card") {
     const replayedMessage = {
       ...msg,
-      text:
-        pendingAction.payload?.kind === "text"
-          ? pendingAction.payload.text || ""
-          : undefined,
-      photo:
-        pendingAction.payload?.kind === "photo"
-          ? pendingAction.payload.photo || []
-          : undefined,
-      document:
-        pendingAction.payload?.kind === "document"
-          ? pendingAction.payload.document || null
-          : undefined,
+      text: pendingAction.payload?.kind === "text" ? pendingAction.payload.text || "" : undefined,
+      photo: pendingAction.payload?.kind === "photo" ? pendingAction.payload.photo || [] : undefined,
+      document: pendingAction.payload?.kind === "document" ? pendingAction.payload.document || null : undefined,
       caption: pendingAction.payload?.caption || "",
       media_group_id: pendingAction.payload?.mediaGroupId || undefined,
     };
@@ -202,13 +160,9 @@ async function resumePendingAction(bot, msg, session, pendingAction, handlers) {
     return;
   }
 
-  await bot.sendMessage(
-    msg.chat.id,
-    `${ERROR} Unsupported pending action\\. Try again\\.`,
-    {
-      parse_mode: "MarkdownV2",
-    },
-  );
+  await bot.sendMessage(msg.chat.id, `${ERROR} Unsupported pending action\\. Try again\\.`, {
+    parse_mode: "MarkdownV2",
+  });
 }
 
 async function handlePendingPin(bot, msg, handlers) {
@@ -226,96 +180,43 @@ async function handlePendingPin(bot, msg, handlers) {
       await bot.sendMessage(
         msg.chat.id,
         `${ERROR} For privacy, return to the original chat where you started this action and enter your PIN there\\.`,
-        { parse_mode: "MarkdownV2" },
+        { parse_mode: "MarkdownV2" }
       );
       return true;
     }
 
-    const { data: user, error } = await withSupabaseRetry(() =>
-      supabase
-        .from("users_vault")
-        .select(
-          "telegram_id, vault_pin_hash, failed_attempts, locked_until, encryption_salt",
-        )
-        .eq("telegram_id", telegramId)
-        .maybeSingle(),
-    );
-
-    if (error) {
-      throw error;
+    const user = await getVaultAuthByTelegramId(telegramId);
+    if (!user) {
+      await bot.sendMessage(msg.chat.id, `${ERROR} Something went wrong\\. Please try again\\.`, {
+        parse_mode: "MarkdownV2",
+      });
+      return true;
     }
 
-    if (!user) {
+    const verification = await verifyVaultPin(user, pin, { trackUserId: telegramId });
+
+    if (verification.status === "locked") {
       await bot.sendMessage(
         msg.chat.id,
-        `${ERROR} Something went wrong\\. Please try again\\.`,
-        {
-          parse_mode: "MarkdownV2",
-        },
+        `${LOCK} Too many wrong attempts\\. Try after ${escMd(verification.retryAfterMinutes)} minutes\\.`,
+        { parse_mode: "MarkdownV2" }
+      );
+      return true;
+    }
+
+    if (!verification.ok) {
+        // Freshly crossed a multiple of MAX_FAILED_ATTEMPTS — start a new lockout.
+      await bot.sendMessage(
+        msg.chat.id,
+        `${ERROR} Wrong PIN\\. ${escMd(verification.attemptsRemaining || 0)} attempts remaining\\.`,
+        { parse_mode: "MarkdownV2" }
       );
       return true;
     }
 
     const now = new Date();
-    if (user.locked_until && new Date(user.locked_until) > now) {
-      const minutes = Math.max(
-        1,
-        Math.ceil(
-          (new Date(user.locked_until).getTime() - now.getTime()) / 60000,
-        ),
-      );
-      await bot.sendMessage(
-        msg.chat.id,
-        `${LOCK} Too many wrong attempts\\. Try after ${escMd(minutes)} minutes\\.`,
-        { parse_mode: "MarkdownV2" },
-      );
-      return true;
-    }
-
-    const isValidPin = await bcrypt.compare(pin, user.vault_pin_hash);
-
-    if (!isValidPin) {
-      const nextAttempts = (user.failed_attempts ?? 0) + 1;
-      // Remaining tries in the current cycle (resets every MAX_FAILED_ATTEMPTS).
-      const remainder = nextAttempts % MAX_FAILED_ATTEMPTS;
-      const attemptsRemaining =
-        remainder === 0 ? 0 : MAX_FAILED_ATTEMPTS - remainder;
-      const updatePayload = { failed_attempts: nextAttempts };
-
-      if (remainder === 0) {
-        // Freshly crossed a multiple of MAX_FAILED_ATTEMPTS — start a new lockout.
-        // failed_attempts is left accumulating so getLockoutDuration escalates each cycle.
-        const lockoutMs = getLockoutDuration(nextAttempts);
-        updatePayload.locked_until = new Date(
-          now.getTime() + lockoutMs,
-        ).toISOString();
-        track("user.locked_out", telegramId, {
-          lockout_minutes: Math.round(lockoutMs / 60000),
-        });
-      }
-
-      const { error: updateError } = await withSupabaseRetry(() =>
-        supabase
-          .from("users_vault")
-          .update(updatePayload)
-          .eq("telegram_id", telegramId),
-      );
-
-      if (updateError) {
-        throw updateError;
-      }
-
-      track("user.login_failed", telegramId, { attempt: nextAttempts });
-      await bot.sendMessage(
-        msg.chat.id,
-        `${ERROR} Wrong PIN\\. ${escMd(attemptsRemaining)} attempts remaining\\.`,
-        { parse_mode: "MarkdownV2" },
-      );
-      return true;
-    }
-
     const expiresAt = new Date(now.getTime() + SESSION_MS);
-    const encryptionSalt = String(user.encryption_salt);
+    const encryptionSalt = verification.encryptionSalt;
     activeSessions.set(telegramId, {
       vaultPin: pin,
       encryptionSalt,
@@ -323,17 +224,6 @@ async function handlePendingPin(bot, msg, handlers) {
       chatId: String(msg.chat.id),
     });
     track("user.login", telegramId);
-
-    const { error: resetError } = await withSupabaseRetry(() =>
-      supabase
-        .from("users_vault")
-        .update({ failed_attempts: 0, locked_until: null })
-        .eq("telegram_id", telegramId),
-    );
-
-    if (resetError) {
-      throw resetError;
-    }
 
     // Intentionally NOT persisting the vault PIN to the database.
     // The PIN lives only in the in-memory activeSessions map for the duration
@@ -345,18 +235,14 @@ async function handlePendingPin(bot, msg, handlers) {
       msg,
       { vaultPin: pin, encryptionSalt, chatId: String(msg.chat.id) },
       pendingAction,
-      handlers,
+      handlers
     );
     return true;
   } catch (error) {
     logError("Session handler error", error, { telegramId });
-    await bot.sendMessage(
-      msg.chat.id,
-      `${ERROR} Something went wrong\\. Please try again\\.`,
-      {
-        parse_mode: "MarkdownV2",
-      },
-    );
+    await bot.sendMessage(msg.chat.id, `${ERROR} Something went wrong\\. Please try again\\.`, {
+      parse_mode: "MarkdownV2",
+    });
     return true;
   }
 }
@@ -365,17 +251,21 @@ async function unlockSession(bot, msg, pendingAction) {
   try {
     await promptForPin(bot, msg, pendingAction);
   } catch (error) {
-    logError("Unlock session error", error, {
-      telegramId: String(msg.from?.id),
+    logError("Unlock session error", error, { telegramId: String(msg.from?.id) });
+    await bot.sendMessage(msg.chat.id, `${ERROR} Something went wrong\\. Please try again\\.`, {
+      parse_mode: "MarkdownV2",
     });
-    await bot.sendMessage(
-      msg.chat.id,
-      `${ERROR} Something went wrong\\. Please try again\\.`,
-      {
-        parse_mode: "MarkdownV2",
-      },
-    );
   }
+}
+
+function startSessionForUser(telegramId, { vaultPin, encryptionSalt, chatId }) {
+  const key = String(telegramId);
+  activeSessions.set(key, {
+    vaultPin,
+    encryptionSalt: String(encryptionSalt),
+    expiresAt: new Date(Date.now() + SESSION_MS),
+    chatId: String(chatId),
+  });
 }
 
 async function endSession(telegramId) {
@@ -394,5 +284,6 @@ module.exports = {
   handlePendingPin,
   isAwaitingPin,
   isSessionActive,
+  startSessionForUser,
   unlockSession,
 };
