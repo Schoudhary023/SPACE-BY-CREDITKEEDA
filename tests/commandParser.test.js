@@ -30,11 +30,11 @@ test("sliceMessageEntities adjusts entities into the raw argument range", () => 
         { offset: 17, length: 4, type: "italic" },
       ],
       11,
-      "Bold\n\nText".length,
+      "Bold\n\nText".length
     ),
     [
       { offset: 0, length: 4, type: "bold" },
       { offset: 6, length: 4, type: "italic" },
-    ],
+    ]
   );
 });

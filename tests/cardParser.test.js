@@ -57,6 +57,10 @@ test("normalizeExpiryDate parses natural language dates", () => {
   assert.equal(normalizeExpiryDate("20th June 2026"), "2026-06-20");
 });
 
+test("normalizeExpiryDate parses uppercase ordinal month dates", () => {
+  assert.equal(normalizeExpiryDate("31ST JAN 2027"), "2027-01-31");
+});
+
 test("normalizeExpiryDate parses Indian day-month-year dates", () => {
   assert.equal(normalizeExpiryDate("31/12/2026"), "2026-12-31");
   assert.equal(normalizeExpiryDate("5/6/2026"), "2026-06-05");
@@ -74,7 +78,7 @@ test("sanitizeParsedCard rejects uncertain AI output", () => {
       expiryDate: "2026-10-10",
       confidence: 0.5,
     }),
-    null,
+    null
   );
 });
 
@@ -94,7 +98,7 @@ test("sanitizeParsedCard keeps optional pin and expiry as nullable", () => {
       code: "ABCD1234",
       pin: null,
       expiryDate: null,
-    },
+    }
   );
 });
 
@@ -109,7 +113,7 @@ test("sanitizeParsedCard can keep image cards with missing amount for follow-up"
         expiryDate: null,
         confidence: 0.75,
       },
-      { minConfidence: 0.6, requireAmount: false },
+      { minConfidence: 0.6, requireAmount: false }
     ),
     {
       brand: "Amazon",
@@ -117,7 +121,7 @@ test("sanitizeParsedCard can keep image cards with missing amount for follow-up"
       code: "YW8CSWP2ZDF6FR",
       pin: null,
       expiryDate: null,
-    },
+    }
   );
 });
 
@@ -131,7 +135,7 @@ test("sanitizeParsedCard still requires amount by default", () => {
       expiryDate: null,
       confidence: 0.95,
     }),
-    null,
+    null
   );
 });
 
@@ -145,27 +149,21 @@ test("parseAmountInput accepts amount-only follow-up values", () => {
 
 test("parseMissingCardDetailsInput parses amount and expiry together", () => {
   assert.deepEqual(
-    parseMissingCardDetailsInput("1000 31/12/2026", {
-      needsAmount: true,
-      needsExpiry: true,
-    }),
+    parseMissingCardDetailsInput("1000 31/12/2026", { needsAmount: true, needsExpiry: true }),
     {
       amount: 1000,
       expiryDate: "2026-12-31",
       skippedExpiry: false,
-    },
+    }
   );
 
   assert.deepEqual(
-    parseMissingCardDetailsInput("INR 1,000 skip", {
-      needsAmount: true,
-      needsExpiry: true,
-    }),
+    parseMissingCardDetailsInput("INR 1,000 skip", { needsAmount: true, needsExpiry: true }),
     {
       amount: 1000,
       expiryDate: null,
       skippedExpiry: true,
-    },
+    }
   );
 });
 
@@ -176,7 +174,7 @@ test("parseMissingCardDetailsInput accepts expiry-only follow-up values", () => 
       amount: null,
       expiryDate: "2026-12-31",
       skippedExpiry: false,
-    },
+    }
   );
 
   assert.deepEqual(
@@ -185,7 +183,7 @@ test("parseMissingCardDetailsInput accepts expiry-only follow-up values", () => 
       amount: null,
       expiryDate: null,
       skippedExpiry: true,
-    },
+    }
   );
 });
 
@@ -200,7 +198,7 @@ test("sanitizeParsedCard accepts a lower explicit confidence threshold", () => {
         expiryDate: null,
         confidence: 0.7,
       },
-      { minConfidence: 0.6 },
+      { minConfidence: 0.6 }
     ),
     {
       brand: "Amazon",
@@ -208,7 +206,7 @@ test("sanitizeParsedCard accepts a lower explicit confidence threshold", () => {
       code: "ABCD1234",
       pin: null,
       expiryDate: null,
-    },
+    }
   );
 });
 
@@ -222,6 +220,6 @@ test("sanitizeParsedCard rejects currency labels as brands", () => {
       expiryDate: "2027-02-28",
       confidence: 0.95,
     }),
-    null,
+    null
   );
 });

@@ -1,10 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const {
-  formatDisplayDate,
-  saveConfirmationMessage,
-} = require("../lib/cardDisplay");
+const { formatDisplayDate, saveConfirmationMessage } = require("../lib/cardDisplay");
 
 test("formatDisplayDate renders ISO dates as dd Mon YYYY", () => {
   assert.equal(formatDisplayDate("2026-12-31"), "31 Dec 2026");

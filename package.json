@@ -1,23 +1,22 @@
 {
   "name": "space-by-creditkeeda",
   "version": "1.0.0",
-  "description": "Space by Creditkeeda Telegram bot for encrypted gift card storage with Supabase",
+  "description": "CreditKeeda Space — open-source backend for a secure, zero-knowledge gift card vault. Telegram bot + REST API.",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
+    "start": "node --dns-result-order=ipv4first index.js",
+    "start:bot": "node --dns-result-order=ipv4first index.js",
+    "start:api": "node --dns-result-order=ipv4first api/index.js",
     "test": "node --test",
-    "check": "node --check index.js",
-    "format": "prettier --write \"**/*.{js,json,md,yml}\"",
-    "format:check": "prettier --check \"**/*.{js,json,md,yml}\""
+    "check": "node --check index.js && node --check api/index.js"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.43.4",
+    "@supabase/supabase-js": "^2.106.2",
     "bcryptjs": "^3.0.3",
     "dotenv": "^16.4.5",
-    "node-cron": "^3.0.3"
-  },
-  "devDependencies": {
-    "prettier": "^3.5.3"
+    "node-cron": "^4.2.1",
+    "web-push": "^3.6.7",
+    "ws": "^8.21.0"
   },
   "engines": {
     "node": ">=20"
